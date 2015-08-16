@@ -1,0 +1,83 @@
+---
+- name: encrypt disk volume
+  user: root
+  hosts: luks
+
+  vars_files:
+    - vars.yml
+    - password.yml
+
+  tasks:
+
+    - name: 'Installing XFS tools if necessary'
+      yum: name=xfsprogs state=latest
+
+    - name: 'Installing ext2/3 tools if necessary'
+      yum: name=e2fsprogs state=latest
+
+    - name: 'Encrypting the device(s) with LUKS'
+      shell: echo "{{ password }}" | cryptsetup luksFormat /dev/"{{item}}"
+      with_items:
+        - "{{ dev }}"
+
+
+    - name: 'Open encrypted disk'
+      shell: echo "{{ password }}" | cryptsetup luksOpen /dev/{{ item.0 }} luks-{{ item.1 }}
+      with_together:
+        - "{{ dev }}"
+        - "{{ luksname }}"
+
+    - name: 'Get UUID'
+      shell: blkid /dev/{{item}} | awk '{print $2}'
+      register: UUID
+      with_items:
+        - "{{ dev }}"
+
+    - name: 'Create keyfile'
+      file: path=/root/.kyfl owner=root group=root mode=0400 state=touch
+
+    - name: 'Generate keyfile'
+      shell: dd if=/dev/urandom of=/root/.kyfl bs=1024 count=4
+
+    - name: 'Add keyfile to LUKS volume'
+      shell: echo "{{ password }}" | cryptsetup luksAddKey /dev/"{{item}}" /root/.kyfl
+      with_items:
+        - "{{ dev }}"
+
+    - name: "Touch /etc/crypttab if it doesn't exist"
+      file: path=/etc/crypttab owner=root group=root mode=0600
+
+    - name: 'Edit /etc/crypttab'
+      lineinfile: "state=present dest=/etc/crypttab regexp={{ item.1.stdout }} line='luks-{{ item.0 }} {{ item.1.stdout }} /root/.kyfl'"
+      with_together:
+        - "{{ luksname }}"
+        - "{{ UUID.results }}"
+
+    - name: 'Creating Volume Group'
+      command: vgcreate "{{ vgname }}" /dev/mapper/luks-"{{ luksname.0 }}"
+
+    - name: 'Extending Volume Group'
+      command: vgextend "{{ vgname }}" /dev/mapper/luks-"{{ item }}"
+      when: luksname.1 is defined
+      with_items:
+        - "{{ luksname }}"
+      ignore_errors: yes
+
+    - name: 'Creating Logical Volume'
+      command: lvcreate -L "{{ item.0 }}" -n "{{ item.1 }}" "{{ vgname }}"
+      with_together:
+        - "{{ lvsize }}"
+        - "{{ lvname }}"
+
+    - name: 'Making filesystem'
+      command: 'mkfs.{{ item.0 }} /dev/mapper/{{ vgname }}-{{ item.1 }}'
+      with_together:
+        - "{{ fstype }}"
+        - "{{ lvname }}"
+
+    - name: 'Mount the new filesystem and add to /etc/fstab'
+      mount: name="{{ item.0 }}" src=/dev/mapper/"{{ vgname }}"-"{{ item.1 }}" fstype="{{ item.2 }}" state=mounted
+      with_together:
+        - "{{ mountpoint }}"
+        - "{{ lvname }}"
+        - "{{ fstype }}"
