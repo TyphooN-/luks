@@ -12,8 +12,8 @@
     - name: 'Installing XFS tools if necessary'
       yum: name=xfsprogs state=latest
 
-    - name: 'Installing ext2/3 tools if necessary'
-      yum: name=e2fsprogs state=latest
+    - name: 'Installing ext4 tools if necessary'
+      yum: name=e4fsprogs state=latest
 
     - name: 'Encrypting the device(s) with LUKS'
       shell: echo "{{ password }}" | cryptsetup luksFormat /dev/"{{item}}"
@@ -45,7 +45,7 @@
         - "{{ dev }}"
 
     - name: "Touch /etc/crypttab if it doesn't exist"
-      file: path=/etc/crypttab owner=root group=root mode=0600
+      file: path=/etc/crypttab owner=root group=root mode=0600 state=touch
 
     - name: 'Edit /etc/crypttab'
       lineinfile: "state=present dest=/etc/crypttab regexp={{ item.1.stdout }} line='luks-{{ item.0 }} {{ item.1.stdout }} /root/.kyfl'"
