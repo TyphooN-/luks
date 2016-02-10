@@ -33,11 +33,17 @@
       with_items:
         - "{{ dev }}"
 
+    - name: 'Check for existing keyfile.'
+      stat: path=/root/.kyfl
+      register: keyfile
+
     - name: 'Create keyfile'
       file: path=/root/.kyfl owner=root group=root mode=0400 state=touch
+      when: keyfile.stat.exists == false
 
     - name: 'Generate keyfile'
       shell: dd if=/dev/urandom of=/root/.kyfl bs=1024 count=4
+      when: keyfile.stat.exists == false
 
     - name: 'Add keyfile to LUKS volume'
       shell: echo "{{ password }}" | cryptsetup luksAddKey /dev/"{{item}}" /root/.kyfl
